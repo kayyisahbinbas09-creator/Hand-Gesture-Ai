@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robot Controller - Micro:bit AI</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- TensorFlow & Teachable Machine Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+    
+    <!-- Firebase SDK (v9 Compatibility Mode) -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+
+    <style>
+        .active-btn {
+            transform: scale(0.92) !important;
+            filter: brightness(1.4) drop-shadow(0 0 15px rgba(255, 255, 255, 0.9)) !important;
+        }
+
+        /* Video / Canvas Kamera memenuhi container kanan layar */
+        #webcam-container canvas, #webcam-container video {
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: cover !important;
+            border-radius: 6px;
+        }
+
+        /* Filter transparan background untuk aset PNG jika diperlukan */
+        .transparent-controller-bg {
+            mix-blend-mode: multiply;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #3b82f6;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-cover bg-center bg-no-repeat font-sans flex flex-col items-center justify-center p-2 sm:p-4 select-none relative overflow-x-hidden"
+      style="background-image: url('https://raw.githubusercontent.com/kayyisahbinbas09-creator/Hand-Gesture-Ai/refs/heads/main/Fundo%20de%20foto%2C%20de%20Brookhaven.jpeg');">
+
+    <!-- Translucent Background Overlay -->
+    <div class="absolute inset-0 bg-black/10 backdrop-blur-[1px] z-0"></div>
+
+    <!-- Toolbar Pengaturan (Top-Right) -->
+    <div class="fixed top-4 right-4 z-50 flex items-center gap-2">
+        <button onclick="toggleModal(true)" class="p-3 bg-white/90 hover:bg-white text-amber-600 rounded-2xl shadow-lg border-2 border-amber-400 transition active:scale-95 flex items-center gap-2 font-bold text-xs" title="Pengaturan Firebase">
+            <i class="fas fa-fire text-base"></i>
+            <span id="fb-status" class="hidden sm:inline text-slate-700">Firebase: Offline</span>
+        </button>
+        <button id="btn-connect" onclick="connectBluetooth()" class="px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl shadow-lg border-2 border-blue-300 font-bold text-xs transition active:scale-95 flex items-center gap-2">
+            <i class="fab fa-bluetooth-b text-sm"></i>
+            <span id="ble-btn-text">Connect Micro:bit</span>
+        </button>
+    </div>
+
+    <!-- MAIN CONTAINER CONTROLLER + JUDUL -->
+    <div class="relative z-10 w-full max-w-[900px] flex flex-col items-center gap-4 my-auto">
+        
+        <!-- BANNER JUDUL (Group 24.png) -->
+        <div class="w-full max-w-[450px] sm:max-w-[550px] drop-shadow-lg">
+            <img src="https://raw.githubusercontent.com/kayyisahbinbas09-creator/Hand-Gesture-Ai/refs/heads/main/Group%2024.png" alt="ROBOT CONTROLLER Title" class="w-full h-auto object-contain">
+        </div>
+
+        <!-- WRAPPER BODY CONTROLLER (Group 23.png) -->
+        <div class="relative w-full aspect-[1000/450] flex items-center justify-center">
+            
+            <!-- Gambar Controller Baru -->
+            <img src="https://raw.githubusercontent.com/kayyisahbinbas09-creator/Hand-Gesture-Ai/refs/heads/main/Group%2023.png" alt="Robot Controller Frame" class="w-full h-full object-contain pointer-events-none drop-shadow-2xl">
+
+            <!-- LAYER INTERAKTIF -->
+            <div class="absolute inset-0 w-full h-full">
+
+                <!-- MONITOR LAYAR UTAMA (Area Layar Hitam di Group 23.png) -->
+                <div class="absolute top-[8.5%] left-[21.2%] w-[57.6%] h-[83%] rounded-md overflow-hidden flex z-20">
+                    
+                    <!-- LAYAR KIRI: Persentase Deteksi AI Hand Gesture -->
+                    <div class="w-1/2 h-full bg-slate-950/90 border-r border-slate-700/60 p-2 sm:p-3 flex flex-col justify-between">
+                        <div>
+                            <div class="text-[10px] sm:text-xs font-bold text-blue-400 uppercase tracking-widest border-b border-slate-700 pb-1 mb-2 flex items-center gap-1">
+                                <i class="fas fa-brain text-amber-400"></i> AI Predictions
+                            </div>
+                            <div id="predictions-overlay" class="space-y-1 max-h-[110px] sm:max-h-[160px] overflow-y-auto pr-1">
+                                <div class="text-[9px] sm:text-[11px] text-slate-400 italic">Kamera Off / Menunggu Input AI...</div>
+                            </div>
+                        </div>
+
+                        <!-- Indikator Status Bluetooth & Perintah -->
+                        <div class="pt-2 border-t border-slate-800 text-[9px] sm:text-[11px] space-y-1 font-mono">
+                            <div class="text-slate-300 flex justify-between">
+                                <span>BLE:</span>
+                                <strong id="ble-status" class="text-red-400">OFF</strong>
+                            </div>
+                            <div class="text-slate-300 flex justify-between">
+                                <span>CMD:</span>
+                                <strong id="last-cmd" class="text-amber-300">STOP</strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- LAYAR KANAN: Visual Live Feed Kamera -->
+                    <div class="w-1/2 h-full bg-slate-900 relative flex items-center justify-center overflow-hidden">
+                        
+                        <!-- Tombol Start/Stop AI Camera (Kiri Atas Layar Kamera) -->
+                        <button id="btn-toggle-cam" onclick="toggleCamera()" class="absolute top-2 left-2 px-2.5 py-1 bg-white/90 hover:bg-white text-blue-700 font-bold rounded-md text-[9px] sm:text-[11px] shadow border border-blue-300 transition active:scale-95 flex items-center gap-1 z-30 backdrop-blur-sm">
+                            <i class="fas fa-power-off text-[9px]"></i>
+                            <span id="cam-btn-text">Start Cam</span>
+                        </button>
+
+                        <!-- Feed Kamera Utuh -->
+                        <div id="webcam-container" class="w-full h-full absolute inset-0 flex items-center justify-center"></div>
+                        <div id="cam-placeholder" class="text-slate-500 flex flex-col items-center gap-1">
+                            <i class="fas fa-video text-xl sm:text-2xl mt-4"></i>
+                            <span class="text-[10px] font-semibold">Feed Kamera</span>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- TOMBOL D-PAD KIRI (Biru): Panah Kiri & Kanan -->
+                <button id="bt-left" class="absolute top-[38%] left-[1.8%] w-[5.5%] h-[24%] rounded-lg active:scale-95 transition-all opacity-0 hover:opacity-20 bg-white cursor-pointer z-30" title="Kiri"></button>
+                <button id="bt-right" class="absolute top-[38%] left-[7.8%] w-[5.5%] h-[24%] rounded-lg active:scale-95 transition-all opacity-0 hover:opacity-20 bg-white cursor-pointer z-30" title="Kanan"></button>
+
+                <!-- TOMBOL D-PAD KANAN (Merah): Panah Atas & Bawah -->
+                <button id="bt-up" class="absolute top-[28%] left-[89.5%] w-[6.5%] h-[20%] rounded-lg active:scale-95 transition-all opacity-0 hover:opacity-20 bg-white cursor-pointer z-30" title="Atas"></button>
+                <button id="bt-down" class="absolute top-[52%] left-[89.5%] w-[6.5%] h-[20%] rounded-lg active:scale-95 transition-all opacity-0 hover:opacity-20 bg-white cursor-pointer z-30" title="Bawah"></button>
+
+            </div>
+        </div>
+
+    </div>
+
+    <!-- MODAL CONFIG FIREBASE -->
+    <div id="fb-modal" class="fixed inset-0 bg-black/60 backdrop-blur-md hidden items-center justify-center z-50 p-4">
+        <div class="bg-white border-4 border-blue-400 rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4 relative text-slate-800">
+            <div class="flex justify-between items-center border-b border-slate-200 pb-3">
+                <h3 class="font-bold text-lg text-blue-600 flex items-center gap-2">
+                    <i class="fas fa-fire text-amber-500"></i> Firebase Config
+                </h3>
+                <button onclick="toggleModal(false)" class="text-slate-400 hover:text-slate-600">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            
+            <div class="space-y-3 font-sans">
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">API Key</label>
+                    <input type="text" id="fb-api-key" placeholder="AIzaSy..." class="w-full bg-slate-100 border-2 border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">Database URL</label>
+                    <input type="text" id="fb-db-url" placeholder="https://your-app-default-rtdb.firebaseio.com" class="w-full bg-slate-100 border-2 border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-blue-500">
+                </div>
+            </div>
+
+            <div class="pt-2 flex justify-end gap-2">
+                <button onclick="toggleModal(false)" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded-xl transition">
+                    Batal
+                </button>
+                <button onclick="initFirebase()" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl shadow-lg transition">
+                    Simpan & Connect
+                </button>
+            </div>
+        </div>
+    </div>
+
+<script type="text/javascript">
+    // --- MODAL TOGGLE ---
+    function toggleModal(show) {
+        const modal = document.getElementById('fb-modal');
+        if (show) {
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        } else {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+    }
+
+    // --- 0. FIREBASE INTEGRATION ---
+    let dbRef = null;
+
+    function initFirebase() {
+        const apiKey = document.getElementById('fb-api-key').value.trim();
+        const databaseURL = document.getElementById('fb-db-url').value.trim();
+
+        if (!apiKey || !databaseURL) {
+            alert("Harap isi API Key dan Database URL Firebase!");
+            return;
+        }
+
+        try {
+            const firebaseConfig = { apiKey, databaseURL };
+
+            if (!firebase.apps.length) {
+                firebase.initializeApp(firebaseConfig);
+            } else {
+                firebase.app().delete().then(() => {
+                    firebase.initializeApp(firebaseConfig);
+                });
+            }
+
+            dbRef = firebase.database().ref('robot_control');
+            document.getElementById('fb-status').innerText = "Firebase: Online";
+            document.getElementById('fb-status').className = "hidden sm:inline text-emerald-600 font-bold";
+            toggleModal(false);
+            alert("Berhasil terhubung ke Firebase!");
+        } catch(e) {
+            console.error("Firebase Init Error:", e);
+            document.getElementById('fb-status').innerText = "Firebase: Error";
+            document.getElementById('fb-status').className = "hidden sm:inline text-red-500 font-bold";
+            alert("Gagal konek Firebase. Periksa API Key / Database URL.");
+        }
+    }
+
+    function sendToFirebase(command, mode) {
+        if (dbRef) {
+            dbRef.set({
+                command: command,
+                mode: mode,
+                timestamp: Date.now()
+            }).catch(err => console.error("Firebase Sync Error:", err));
+        }
+    }
+
+    // --- 1. CONFIG & GLOBALS ---
+    const MODEL_URL = "https://teachablemachine.withgoogle.com/models/mZ_Qhc9ZT/";
+    let model, webcam, labelContainer, maxPredictions;
+    let bluetoothDevice, uartRxCharacteristic, uartTxCharacteristic;
+    let currentCommand = "stop";
+    let isAiMode = false;
+    let animRequestId = null;
+
+    // Standard Micro:bit Bluetooth UART Service UUIDs
+    const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+    const UART_TX_CHARACTERISTIC_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+    const UART_RX_CHARACTERISTIC_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+
+    // --- 2. WEB BLUETOOTH INTEGRATION ---
+    async function connectBluetooth() {
+        try {
+            bluetoothDevice = await navigator.bluetooth.requestDevice({
+                filters: [{ namePrefix: 'BBC micro:bit' }],
+                optionalServices: [UART_SERVICE_UUID]
+            });
+
+            const server = await bluetoothDevice.gatt.connect();
+            const service = await server.getPrimaryService(UART_SERVICE_UUID);
+
+            // Dapatkan kedua karakteristik TX dan RX untuk komptabilitas penuh
+            try {
+                uartTxCharacteristic = await service.getCharacteristic(UART_TX_CHARACTERISTIC_UUID);
+            } catch (e) { console.warn("UART TX Char not found", e); }
+
+            try {
+                uartRxCharacteristic = await service.getCharacteristic(UART_RX_CHARACTERISTIC_UUID);
+            } catch (e) { console.warn("UART RX Char not found", e); }
+
+            document.getElementById('ble-status').innerText = "ON";
+            document.getElementById('ble-status').className = "text-emerald-400 font-bold";
+            document.getElementById('ble-btn-text').innerText = "Micro:bit Connected";
+        } catch (error) {
+            console.error("Bluetooth Gagal:", error);
+            alert("Gagal/Dibatalkan terhubung dengan micro:bit.");
+        }
+    }
+
+    async function sendToMicrobit(command) {
+        if (currentCommand === command) return;
+        currentCommand = command;
+        document.getElementById('last-cmd').innerText = command.toUpperCase();
+
+        sendToFirebase(command, isAiMode ? "AI_AUTOMATIC" : "MANUAL_JOYSTICK");
+
+        const targetChar = uartRxCharacteristic || uartTxCharacteristic;
+        if (targetChar) {
+            try {
+                const encoder = new TextEncoder();
+                
+                // 1. Format terstruktur seperti pada website fix: move,command\n
+                const structuredPayload = `move,${command}\n`;
+                await targetChar.writeValue(encoder.encode(structuredPayload));
+
+                // 2. Format alternatif teks biasa langsung: command\n
+                const plainPayload = `${command}\n`;
+                await targetChar.writeValue(encoder.encode(plainPayload));
+            } catch (err) {
+                console.error("Bluetooth TX Error:", err);
+            }
+        }
+    }
+
+    // --- 3. D-PAD MANUAL JOYSTICK LOGIC ---
+    function setupManualJoystick() {
+        const buttons = {
+            'bt-up': 'up',
+            'bt-down': 'down',
+            'bt-left': 'left',
+            'bt-right': 'right'
+        };
+
+        Object.keys(buttons).forEach(id => {
+            const btn = document.getElementById(id);
+            const cmd = buttons[id];
+
+            const startPress = (e) => {
+                e.preventDefault();
+                if (!isAiMode) {
+                    highlightButton(id);
+                    sendToMicrobit(cmd);
+                }
+            };
+
+            const endPress = (e) => {
+                e.preventDefault();
+                if (!isAiMode) {
+                    resetButtons();
+                    sendToMicrobit("stop");
+                }
+            };
+
+            btn.addEventListener('mousedown', startPress);
+            btn.addEventListener('mouseup', endPress);
+            btn.addEventListener('mouseleave', endPress);
+            btn.addEventListener('touchstart', startPress);
+            btn.addEventListener('touchend', endPress);
+        });
+    }
+    setupManualJoystick();
+
+    // --- 4. TEACHABLE MACHINE AI CAMERA ---
+    async function toggleCamera() {
+        if (!isAiMode) {
+            document.getElementById('cam-btn-text').innerText = "Loading...";
+            try {
+                if (!model) {
+                    const modelURL = MODEL_URL + "model.json";
+                    const metadataURL = MODEL_URL + "metadata.json";
+                    model = await tmImage.load(modelURL, metadataURL);
+                    maxPredictions = model.getTotalClasses();
+                }
+
+                const flip = true;
+                webcam = new tmImage.Webcam(300, 300, flip);
+                await webcam.setup();
+                await webcam.play();
+
+                const webcamContainer = document.getElementById('webcam-container');
+                webcamContainer.innerHTML = "";
+                webcamContainer.appendChild(webcam.canvas);
+                document.getElementById('cam-placeholder').style.display = "none";
+
+                labelContainer = document.getElementById("predictions-overlay");
+                labelContainer.innerHTML = "";
+
+                for (let i = 0; i < maxPredictions; i++) {
+                    labelContainer.appendChild(document.createElement("div"));
+                }
+
+                isAiMode = true;
+                document.getElementById('cam-btn-text').innerText = "Stop Cam";
+                document.getElementById('btn-toggle-cam').classList.replace('text-blue-700', 'text-red-600');
+
+                animRequestId = window.requestAnimationFrame(loop);
+            } catch (err) {
+                console.error("Akses Kamera / Model Gagal:", err);
+                alert("Gagal mengaktifkan kamera atau memuat model AI.");
+                document.getElementById('cam-btn-text').innerText = "Start Cam";
+            }
+        } else {
+            isAiMode = false;
+            if (animRequestId) {
+                cancelAnimationFrame(animRequestId);
+                animRequestId = null;
+            }
+            if (webcam) {
+                webcam.stop();
+            }
+            document.getElementById('webcam-container').innerHTML = "";
+            document.getElementById('cam-placeholder').style.display = "flex";
+            
+            labelContainer = document.getElementById("predictions-overlay");
+            labelContainer.innerHTML = `<div class="text-[9px] sm:text-[11px] text-slate-400 italic">Kamera Off / Menunggu Input AI...</div>`;
+
+            document.getElementById('cam-btn-text').innerText = "Start Cam";
+            document.getElementById('btn-toggle-cam').classList.replace('text-red-600', 'text-blue-700');
+
+            resetButtons();
+            sendToMicrobit("stop");
+        }
+    }
+
+    async function loop() {
+        if (!isAiMode) return;
+        if (webcam && webcam.canvas) {
+            webcam.update();
+            await predict();
+        }
+        animRequestId = window.requestAnimationFrame(loop);
+    }
+
+    async function predict() {
+        if (!webcam || !webcam.canvas) return;
+
+        const prediction = await model.predict(webcam.canvas);
+        let highestProb = 0;
+        let bestClass = "stop";
+
+        for (let i = 0; i < maxPredictions; i++) {
+            const className = prediction[i].className;
+            const probability = prediction[i].probability;
+
+            if (labelContainer.childNodes[i]) {
+                const percent = (probability * 100).toFixed(0);
+                labelContainer.childNodes[i].innerHTML = 
+                    `<div class="bg-slate-900/80 px-2 py-1 rounded border border-slate-700 flex justify-between items-center text-[9px] sm:text-[10px] text-white font-mono mb-1">
+                        <span class="capitalize truncate text-slate-300">${className}</span>
+                        <span class="font-bold text-amber-300">${percent}%</span>
+                     </div>`;
+            }
+
+            if (probability > highestProb) {
+                highestProb = probability;
+                bestClass = className.toLowerCase();
+            }
+        }
+
+        if (highestProb < 0.65) bestClass = "stop";
+
+        if (bestClass.includes("atas") || bestClass.includes("up") || bestClass.includes("maju")) {
+            highlightButton('bt-up');
+            sendToMicrobit("up");
+        } else if (bestClass.includes("bawah") || bestClass.includes("down") || bestClass.includes("mundur")) {
+            highlightButton('bt-down');
+            sendToMicrobit("down");
+        } else if (bestClass.includes("kiri") || bestClass.includes("left")) {
+            highlightButton('bt-left');
+            sendToMicrobit("left");
+        } else if (bestClass.includes("kanan") || bestClass.includes("right")) {
+            highlightButton('bt-right');
+            sendToMicrobit("right");
+        } else {
+            resetButtons();
+            sendToMicrobit("stop");
+        }
+    }
+
+    // --- 5. UI HIGHLIGHT HELPER ---
+    function highlightButton(buttonId) {
+        resetButtons();
+        const btn = document.getElementById(buttonId);
+        if (btn) btn.classList.add('active-btn');
+    }
+
+    function resetButtons() {
+        ['bt-up', 'bt-down', 'bt-left', 'bt-right'].forEach(id => {
+            const btn = document.getElementById(id);
+            if (btn) btn.classList.remove('active-btn');
+        });
+    }
+</script>
+</body>
+</html>
